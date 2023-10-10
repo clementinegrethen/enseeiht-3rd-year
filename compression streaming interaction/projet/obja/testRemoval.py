@@ -118,43 +118,84 @@ class Decimater(obja.Model):
         vertex_connectivity = {}
         vertex_area = {}
         vertex_curvature = {}
-        vertex_normal_vector= {}
+        theta_you_know = {}
+        laplacien_you_know = {}
+        curvature= {}
         for (vertex_index, vertex) in enumerate(self.vertices):
+
             # Initialize the list of connectivity for this vertex
             vertex_connectivity[vertex_index] = []
             vertex_area[vertex_index] = 0.0
             vertex_curvature[vertex_index] = 0.0
+           
 
         for (vertex_index, vertex) in enumerate(self.vertices):
-            
+
             normal_vector_to_the_vertex= np.zeros(3)
             num_triangles= 0
             
             for (face_index, face) in enumerate(self.faces):
-                
+                print(face)            
+
                 if vertex_index in [face.a, face.b, face.c]:
-                    normal_vector_to_the_vertex= normal_vector_to_the_vertex + calculate_face_normal(self.vertices[face.a], self.vertices[face.b], self.vertices[face.c])
-                    num_triangles += 1
-                                
-                #Connectivity
-                for v in [face.a, face.b, face.c]:
-                    # Add the connectivity to neighboring vertices
-                    for neighbor in [face.a, face.b, face.c]:
-                        if v != neighbor and neighbor not in vertex_connectivity[v]:
-                            vertex_connectivity[v].append(neighbor)
-                          
+                    vertex_a = self.vertices[face.a]
+                    vertex_b = self.vertices[face.b]
+                    vertex_c = self.vertices[face.c]
+
+                    # Determine the neighboring vertices which are not vertex
+                    if vertex_index == face.a:
+                        adj_vertices = [vertex_b, vertex_c]
+                    elif vertex_index == face.b:
+                        adj_vertices = [vertex_a, vertex_c]
+                    elif vertex_index == face.c:
+                        adj_vertices = [vertex_a, vertex_b]
+
+                    if len(adj_vertices) == 2:
+                        vector1 = adj_vertices[0] - vertex
+                        vector2 = adj_vertices[1] - vertex
+
+                        # Calculez l'angle entre vector1 et vector2
+                    angle = np.arccos(np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2)))
+                    
+                        # Ajoutez l'angle à la liste correspondante dans le dictionnaire
+                    theta_you_know.setdefault(vertex_index, []).append(angle)
+                                                
+                    #Connectivity
+                    for v in [face.a, face.b, face.c]:
+                        # Add the connectivity to neighboring vertices
+
+                        if v != vertex_index :
+                                laplacien_you_know.setdefault(vertex_index,0)
+                                laplacien_you_know[vertex_index] += v - vertex
+                        for neighbor in [face.a, face.b, face.c]:
+                            if v != neighbor and neighbor not in vertex_connectivity[v]:
+
+                                vertex_connectivity[v].append(neighbor)
+
                 #Area
                 if vertex_index in [face.a, face.b, face.c]:
                     vertex_area[vertex_index] += (self.area(face))
+            curvature.setdefault(vertex_index, None)
+            # Calcul de la courbure dans tous les cas
+            try:
+                laplacien_pi = laplacien_you_know[vertex_index]
+                H = - np.linalg.norm(laplacien_pi) / 2
+                kg = (2 * np.pi - np.sum(theta_you_know[vertex_index])) / vertex_area[vertex_index]
+                k1 = H + np.sqrt(H**2 - kg)
+                k2 = H - np.sqrt(H**2 - kg)
+                curvature[vertex_index] = np.abs(k1) + np.abs(k2)
+            except KeyError:
+                curvature[vertex_index] = None  # Vous pouvez définir une valeur par défaut, par exemple None, ou faire autre chose
 
-                #Curvature
-                if vertex_index in [face.a, face.b, face.c]:
-                    vertex_curvature[vertex_index] += 1#(calculate_face_normal(face.a, face.b, face.c))
+           
+           
+                    
 
-            vertex_curvature[vertex_index] = 1.0 - np.linalg.norm(vertex_curvature[vertex_index])
+
 
             # vertex_normal_vector[vertex_index] = normal_vector_to_the_vertex / num_triangles
 
+                
 
         file_weight = []
         for (vertex_index, vertex) in enumerate(self.vertices):
@@ -165,13 +206,18 @@ class Decimater(obja.Model):
 
                 for neighbor in vertex_connectivity[vertex_index]:
                     a_neighbors.append(vertex_area[neighbor])
-                    k_neighbors.append(vertex_curvature[neighbor])
-
-                w = 0.5 * (vertex_area[vertex_index] / np.max(a_neighbors)) + 0.5 * (vertex_curvature[vertex_index] / np.max(k_neighbors))
+                    k_neighbors.append(curvature[neighbor])
+                try :
+                    w = 0.5 * (vertex_area[vertex_index] / np.max(a_neighbors)) + 0.5 * (curvature[vertex_index] / np.max(k_neighbors))
+                except ValueError:
+                    w=0
+                # print(curvature[vertex_index])
                 #weight = 0.5 * (vertex_area[vertex_index]/np.max(vertex_area[connectivity])) + 0.5 * (vertex_curvature[vertex_index]/np.max(vertex_curvature[vertex_connectivity[vertex_index]]))
                 file_weight.append([w, vertex_index, vertex])
 
         # Sort the list of weight
+        print(file_weight)
+        
         sorted_weight = sorted(file_weight, key=lambda x: x[0], reverse=True)
 
         
@@ -192,7 +238,6 @@ class Decimater(obja.Model):
         while sorted_weight!=[]:
             # Get the vertex with the highest weight
             (w, vertex_index, vertex) = sorted_weight.pop(0)
-            print(vertex)
 
             # Iterate through the faces
             for (face_index, face) in enumerate(self.faces):
@@ -211,8 +256,8 @@ class Decimater(obja.Model):
                     # Supprimez l'élément de la liste d'origine
                     sorted_weight.remove([weight_neighbor, index_neighbor, neighbor])
 
-                # Delete the vertex
-                operations.append(('vertex', vertex_index, vertex))
+            # Delete the vertex
+            operations.append(('vertex', vertex_index, vertex))
             
 
            
@@ -227,7 +272,15 @@ class Decimater(obja.Model):
             if ty == "vertex":
                 output_model.add_vertex(index, value)
             elif ty == "face":
-                output_model.add_face(index, value)  
+                
+                try:
+                   
+                    output_model.add_face(index, value)  
+                    print("youpi")
+                except:
+                    print("erreur")
+
+                    
             else:
                 output_model.edit_vertex(index, value)
 
@@ -237,9 +290,9 @@ def main():
     """
     np.seterr(invalid = 'raise')
     model = Decimater()
-    model.parse_file('example/triangle.obj')
+    model.parse_file('example/suzanne.obj')
 
-    with open('example/triangle.obja', 'w') as output:
+    with open('example/suzanne.obja', 'w') as output:
         model.contract(output)
 
 
